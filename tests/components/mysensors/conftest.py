@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator, Callable, Generator
 import json
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from mysensors import BaseSyncGateway
 from mysensors.persistence import MySensorsJSONDecoder
@@ -63,39 +63,53 @@ async def serial_transport_fixture(
     """Mock a serial transport."""
     with patch(
         "mysensors.gateway_serial.AsyncTransport", autospec=True
-    ) as transport_class, patch("mysensors.AsyncTasks", autospec=True) as tasks_class:
-        tasks = tasks_class.return_value
-        tasks.persistence = MagicMock
+    ) as transport_class, patch("mysensors.task.OTAFirmware", autospec=True), patch(
+        "mysensors.task.load_fw", autospec=True
+    ), patch(
+        "mysensors.task.Persistence", autospec=True
+    ) as persistence_class:
+        persistence = persistence_class.return_value
 
-        mock_gateway_features(tasks, transport_class, gateway_nodes)
+        mock_gateway_features(persistence, transport_class, gateway_nodes)
 
         yield transport_class
 
 
 def mock_gateway_features(
-    tasks: MagicMock, transport_class: MagicMock, nodes: dict[int, Sensor]
+    persistence: MagicMock, transport_class: MagicMock, nodes: dict[int, Sensor]
 ) -> None:
     """Mock the gateway features."""
 
-    async def mock_start_persistence() -> None:
+    async def mock_schedule_save_sensors() -> None:
         """Load nodes from via persistence."""
         gateway = transport_class.call_args[0][0]
         gateway.sensors.update(nodes)
 
-    tasks.start_persistence.side_effect = mock_start_persistence
+    persistence.schedule_save_sensors = AsyncMock(
+        side_effect=mock_schedule_save_sensors
+    )
 
-    async def mock_start() -> None:
+    async def mock_connect() -> None:
         """Mock the start method."""
+        transport.connect_task = MagicMock()
         gateway = transport_class.call_args[0][0]
         gateway.on_conn_made(gateway)
 
-    tasks.start.side_effect = mock_start
+    transport = transport_class.return_value
+    transport.connect_task = None
+    transport.connect.side_effect = mock_connect
 
 
 @pytest.fixture(name="transport")
 def transport_fixture(serial_transport: MagicMock) -> MagicMock:
     """Return the default mocked transport."""
     return serial_transport
+
+
+@pytest.fixture()
+def transport_write(transport: MagicMock) -> MagicMock:
+    """Return the transport mock that accepts string messages."""
+    return transport.return_value.send
 
 
 @pytest.fixture(name="serial_entry")
