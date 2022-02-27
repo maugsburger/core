@@ -106,7 +106,7 @@ def transport_fixture(serial_transport: MagicMock) -> MagicMock:
     return serial_transport
 
 
-@pytest.fixture()
+@pytest.fixture
 def transport_write(transport: MagicMock) -> MagicMock:
     """Return the transport mock that accepts string messages."""
     return transport.return_value.send
@@ -133,16 +133,28 @@ def config_entry_fixture(serial_entry: MockConfigEntry) -> MockConfigEntry:
     return serial_entry
 
 
-@pytest.fixture
-async def integration(
+@pytest.fixture(name="integration")
+async def integration_fixture(
     hass: HomeAssistant, transport: MagicMock, config_entry: MockConfigEntry
-) -> AsyncGenerator[tuple[MockConfigEntry, Callable[[str], None]], None]:
+) -> AsyncGenerator[MockConfigEntry, None]:
     """Set up the mysensors integration with a config entry."""
     device = config_entry.data[CONF_DEVICE]
     config: dict[str, Any] = {DOMAIN: {CONF_GATEWAYS: [{CONF_DEVICE: device}]}}
     config_entry.add_to_hass(hass)
 
-    def receive_message(message_string: str) -> None:
+    with patch("homeassistant.components.mysensors.device.UPDATE_DELAY", new=0):
+        await async_setup_component(hass, DOMAIN, config)
+        await hass.async_block_till_done()
+        yield config_entry
+
+
+@pytest.fixture
+def receive_message(
+    transport: MagicMock, integration: MockConfigEntry
+) -> Callable[[str], None]:
+    """Receive a message for the gateway."""
+
+    def receive_message_callback(message_string: str) -> None:
         """Receive a message with the transport.
 
         The message_string parameter is a string in the MySensors message format.
@@ -151,14 +163,13 @@ async def integration(
         # node_id;child_id;command;ack;type;payload\n
         gateway.logic(message_string)
 
-    with patch("homeassistant.components.mysensors.device.UPDATE_DELAY", new=0):
-        await async_setup_component(hass, DOMAIN, config)
-        await hass.async_block_till_done()
-        yield config_entry, receive_message
+    return receive_message_callback
 
 
 @pytest.fixture(name="gateway")
-def gateway_fixture(transport, integration) -> BaseSyncGateway:
+def gateway_fixture(
+    transport: MagicMock, integration: MockConfigEntry
+) -> BaseSyncGateway:
     """Return a setup gateway."""
     return transport.call_args[0][0]
 

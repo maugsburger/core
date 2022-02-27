@@ -1,7 +1,6 @@
 """Provide tests for mysensors notify platform."""
 from __future__ import annotations
 
-from collections.abc import Callable
 from unittest.mock import MagicMock, call
 
 from mysensors.sensor import Sensor
@@ -16,7 +15,7 @@ async def test_text_type(
     hass: HomeAssistant,
     text_node: Sensor,
     transport_write: MagicMock,
-    integration: tuple[MockConfigEntry, Callable[[str], None]],
+    integration: MockConfigEntry,
 ) -> None:
     """Test a text type child."""
     await hass.services.async_call(
